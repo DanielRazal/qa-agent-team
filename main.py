@@ -31,6 +31,8 @@ def main() -> int:
     ap.add_argument("--triage", action="store_true", help="run the suite and explain failures")
     args = ap.parse_args()
     OUT.mkdir(exist_ok=True)
+    for stale in ("triage_report.json", "results.xml", "rerun.xml"):
+        (OUT / stale).unlink(missing_ok=True)  # never report last run's failures
 
     banner("[1/3] EXPLORER", f"mapping {args.url}")
     app_map = Explorer(max_pages=args.pages, headless=not args.headed).explore(args.url)

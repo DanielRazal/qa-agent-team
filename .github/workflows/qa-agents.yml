@@ -1,0 +1,58 @@
+name: QA Agent Team
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Application to explore
+        default: https://practicesoftwaretesting.com
+      pages:
+        description: Max pages to crawl
+        default: "3"
+  schedule:
+    - cron: "0 3 * * *" # nightly, catches UI drift overnight
+
+jobs:
+  explore-design-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run the agent pipeline
+        id: pipeline
+        continue-on-error: true # test failures are triaged, not fatal
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python main.py "${{ inputs.url || 'https://practicesoftwaretesting.com' }}" \
+            --pages "${{ inputs.pages || 3 }}" --per-page 5 --triage
+
+      - name: Write job summary
+        if: always()
+        run: python ci_summary.py >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload generated suite and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-agent-output
+          path: |
+            output/
+            tests_generated/
+          retention-days: 14
+
+      - name: Fail if anything other than the app is broken
+        if: always()
+        run: python ci_gate.py
