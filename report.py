@@ -59,7 +59,7 @@ h2 { font-size: 17px; margin: 36px 0 12px; letter-spacing: -.005em; }
   background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
   padding: 14px 16px; box-shadow: var(--shadow);
 }
-.tile .n { font-size: 26px; font-weight: 600; letter-spacing: -.02em; }
+.tile .n { font-size: 26px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
 .card {
   background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
