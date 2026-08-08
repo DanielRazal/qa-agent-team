@@ -4,10 +4,13 @@ Usage: python main.py <url> [--pages N] [--per-page N] [--run] [--triage] [--hea
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 from agents.automator import Automator
 from agents.designer import Designer
@@ -30,6 +33,18 @@ def main() -> int:
     ap.add_argument("--run", action="store_true", help="run the generated suite afterwards")
     ap.add_argument("--triage", action="store_true", help="run the suite and explain failures")
     args = ap.parse_args()
+
+    load_dotenv()
+    if not os.getenv("GEMINI_API_KEY"):
+        print(
+            "GEMINI_API_KEY is not set.\n"
+            "  local: copy .env.example to .env and paste a key from "
+            "https://aistudio.google.com/apikey\n"
+            "  CI:    add it as a repository secret named GEMINI_API_KEY",
+            file=sys.stderr,
+        )
+        return 2
+
     OUT.mkdir(exist_ok=True)
     for stale in ("triage_report.json", "results.xml", "rerun.xml"):
         (OUT / stale).unlink(missing_ok=True)  # never report last run's failures
