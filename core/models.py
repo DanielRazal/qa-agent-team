@@ -13,6 +13,7 @@ class Element(BaseModel):
     input_type: str = ""
     required: bool = False
     disabled: bool = False  # includes wrappers like <li class="disabled">
+    volatile: bool = False  # selector contains a generated id, changes on reseed
     href: str = ""
 
 
@@ -86,3 +87,38 @@ class TestPlan(BaseModel):
     base_url: str
     summary: str = ""
     cases: list[TestCase] = []
+
+
+# --- triage ---
+
+
+class SelectorCheck(BaseModel):
+    selector: str
+    matches: int  # 0 = gone, 1 = healthy, >1 = ambiguous
+
+
+class Failure(BaseModel):
+    test: str  # pytest node id
+    file: str
+    message: str = ""
+    rerun_passed: bool | None = None  # None = not rerun
+    selector_checks: list[SelectorCheck] = []
+
+
+Category = Literal["flaky", "selector_drift", "product_bug", "test_defect", "environment"]
+
+
+class Verdict(BaseModel):
+    test: str
+    category: Category
+    confidence: Literal["high", "medium", "low"] = "medium"
+    root_cause: str = ""
+    action: str = ""
+    evidence: str = ""
+
+
+class TriageReport(BaseModel):
+    total: int = 0
+    failed: int = 0
+    verdicts: list[Verdict] = []
+    groups: list[dict] = []  # {"root_cause": str, "tests": [str]}

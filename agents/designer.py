@@ -32,7 +32,10 @@ HARD RULES
    Clicking often replaces or hides it. Assert the RESULT instead: new text, new url.
 4. expect_text must use text a user can SEE on the page - copy it from the element
    labels or headings you were given. The browser tab title is not page text.
-5. Every test must end with at least one expect_* step."""
+5. Elements marked "volatile": true carry generated ids that change every time the
+   app's data is reseeded. Prefer stable elements. Use a volatile one only when the
+   test is impossible without it, and assert with expect_text rather than its selector.
+6. Every test must end with at least one expect_* step."""
 
 
 # LLMs drift on enum wording - map the usual synonyms back.
@@ -91,7 +94,7 @@ class Designer:
                 "visible_headings": p.headings,
                 "elements": [
                     {"kind": e.kind, "label": e.label, "selector": e.css,
-                     "type": e.input_type, "disabled": e.disabled}
+                     "type": e.input_type, "disabled": e.disabled, "volatile": e.volatile}
                     for e in p.elements
                     if e.css and (e.label or e.kind != "link")
                 ][:45],

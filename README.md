@@ -26,7 +26,9 @@ Orchestrator (main.py)
    +-- Designer   --> turns the map into test cases written in a constrained DSL
    |                  --> output/test_plan.json
    +-- Automator  --> compiles the DSL into Playwright code with Page Objects
-                      --> tests_generated/
+   |                  --> tests_generated/
+   +-- Triage     --> runs the suite and explains every failure
+                      --> output/triage_report.json
 ```
 
 Agents communicate through JSON files on disk, so every stage is inspectable,
@@ -49,6 +51,13 @@ wrapper-based disabling (`<li class="disabled">`), not just the HTML attribute. 
 what lets the Designer write *"Previous is disabled on page 1"* instead of clicking a
 dead control and timing out.
 
+**Triage argues from evidence, not vibes.** Before the model sees anything, the Triage
+agent reruns every failure (a test that passes on rerun is flaky by definition) and
+re-checks each locator named in the error against the live page. Two verdicts are then
+decided by rule alone, with no model call: `rerun passed -> flaky` and
+`selector matches 0 elements -> selector_drift`. The model only explains what the
+evidence has not already settled, and groups failures that share a root cause.
+
 **Free-tier first.** Responses are cached on disk keyed by prompt, and the client falls
 through a chain of Gemini models when one hits its daily quota. A full run costs three
 API calls: one to understand the app, one to design the suite, one to name elements.
@@ -68,10 +77,11 @@ cp .env.example .env             # then paste a key from aistudio.google.com/api
 
 | Command | What it does |
 |---|---|
-| `python main.py <url> [--run]` | Full pipeline; `--run` also executes the suite |
+| `python main.py <url> [--run\|--triage]` | Full pipeline; optionally run or triage the suite |
 | `python run_explorer.py <url> [--no-llm]` | Map only — `--no-llm` skips all API calls |
 | `python run_designer.py` | Re-design from an existing `app_map.json` |
 | `python run_automator.py` | Re-generate code from an existing `test_plan.json` |
+| `python run_triage.py` | Run the suite and classify every failure |
 | `python verify_map.py` | Check every mapped selector still resolves on the live site |
 
 Useful flags: `--pages N` (crawl depth), `--per-page N` (cases per page),
@@ -95,10 +105,31 @@ def test_verify_previous_page_pagination_button_is(page):
 Page Objects are generated alongside the tests, one class per page, with element names
 chosen by the model for readability.
 
+## Triage output
+
+```
+TRIAGE: 4 failure(s) - {'selector_drift': 2, 'test_defect': 2}
+
+[SELECTOR_DRIFT] (high confidence)  test_homepage.py::test_search_for_products[chromium]
+  why      : Locator no longer matches anything: [data-test="search-query-v1"]
+  evidence : 1 selector(s) match 0 elements
+  action   : Re-run the Explorer to refresh app_map.json, then regenerate.
+
+[FLAKY] (high confidence)  test_homepage.py::test_promo_banner[chromium]
+  why      : Passed on rerun with no code change.
+  evidence : rerun passed
+  action   : Quarantine and investigate the wait or race condition.
+```
+
+Triage found a real problem during development: the demo site regenerates its product,
+brand and category ids on every reseed, so any test built on `[data-test="product-01KZ…"]`
+breaks overnight. The Explorer now flags such elements as `volatile`, and the Designer
+is instructed to build tests around stable controls instead.
+
 ## Limitations
 
 - Read-only crawling: no login, no checkout, nothing that writes data.
-- Products keyed by generated IDs make some assertions brittle across deploys —
-  `verify_map.py` is the intended way to detect that drift.
 - Test quality tracks map quality. A page rendered entirely after user interaction is
   invisible to the crawler.
+- Triage reruns a failure once. One rerun proves flakiness when it passes, but cannot
+  disprove it when it fails again.

@@ -69,6 +69,18 @@
     return el.getAttribute("role") === "link" ? "link" : "button";
   };
 
+  // Ids like "product-01KZFREQ0RYPDAJVY1VRCXJCNA" are regenerated on every reseed.
+  const looksGenerated = (v) =>
+    /[A-Za-z0-9]{16,}/.test(v) && /\d/.test(v) && /[A-Za-z]/.test(v);
+
+  const isVolatile = (el) => {
+    for (const attr of TEST_ATTRS) {
+      const v = el.getAttribute(attr);
+      if (v && looksGenerated(v)) return true;
+    }
+    return !!(el.id && looksGenerated(el.id));
+  };
+
   // Bootstrap-style wrappers disable a control without a disabled attribute on it.
   const isDisabled = (el) =>
     !!(el.disabled ||
@@ -83,6 +95,7 @@
     input_type: el.tagName.toLowerCase() === "input" ? (el.type || "text") : "",
     required: !!el.required,
     disabled: isDisabled(el),
+    volatile: isVolatile(el),
     href: el.tagName.toLowerCase() === "a" ? el.href : "",
   });
 

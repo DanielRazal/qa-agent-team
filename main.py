@@ -1,6 +1,6 @@
-"""Orchestrator: Explorer -> Designer -> Automator.
+"""Orchestrator: Explorer -> Designer -> Automator -> (Triage).
 
-Usage: python main.py <url> [--pages N] [--per-page N] [--run] [--headed]
+Usage: python main.py <url> [--pages N] [--per-page N] [--run] [--triage] [--headed]
 """
 
 import argparse
@@ -12,6 +12,7 @@ from pathlib import Path
 from agents.automator import Automator
 from agents.designer import Designer
 from agents.explorer import Explorer
+from agents.triage import Triage
 
 OUT = Path("output")
 
@@ -27,6 +28,7 @@ def main() -> int:
     ap.add_argument("--per-page", type=int, default=5, help="test cases per page")
     ap.add_argument("--headed", action="store_true", help="watch the browser")
     ap.add_argument("--run", action="store_true", help="run the generated suite afterwards")
+    ap.add_argument("--triage", action="store_true", help="run the suite and explain failures")
     args = ap.parse_args()
     OUT.mkdir(exist_ok=True)
 
@@ -51,6 +53,10 @@ def main() -> int:
     for f in files:
         print(f"   + {f}")
 
+    if args.triage:
+        banner("[4/4] TRIAGE", "running the suite and explaining failures")
+        return run_triage(app_map)
+
     if not args.run:
         print("\nDone. Run the suite with:  cd tests_generated && pytest -v")
         return 0
@@ -60,6 +66,28 @@ def main() -> int:
         [sys.executable, "-m", "pytest", "-v", "--tb=line"], cwd="tests_generated"
     )
     return result.returncode
+
+
+def run_triage(app_map) -> int:
+    triage = Triage()
+    xml_path = OUT / "results.xml"
+    total, failures = triage.run_suite(xml_path)
+    print(f"{total - len(failures)}/{total} passed")
+    if not failures:
+        print("Nothing to triage.")
+        return 0
+
+    triage.rerun(failures, xml_path)
+    triage.check_selectors(failures, app_map)
+    report = triage.analyse(failures, total)
+    (OUT / "triage_report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
+    print(f"\n{len(report.verdicts)} verdict(s): {dict(Counter(v.category for v in report.verdicts))}")
+    for v in report.verdicts:
+        print(f"\n[{v.category.upper()}] ({v.confidence}) {v.test}")
+        print(f"  why    : {v.root_cause}")
+        print(f"  action : {v.action}")
+    return 1
 
 
 if __name__ == "__main__":
