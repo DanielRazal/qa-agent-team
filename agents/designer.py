@@ -18,12 +18,21 @@ You may ONLY use these step actions:
   expect_text <text>             - page contains this text
   expect_visible <selector>      - element is visible
   expect_hidden <selector>       - element is not visible
+  expect_disabled <selector>     - element is disabled
+  expect_enabled <selector>      - element is enabled
   expect_url <fragment>          - url contains this fragment
 
-HARD RULE: every selector you use MUST be copied exactly from the element list given
-to you. Never invent, guess, or modify a selector. If you cannot express a check with
-the available selectors, use expect_text instead.
-Every test must end with at least one expect_* step."""
+HARD RULES
+1. Every selector MUST be copied exactly from the element list given to you.
+   Never invent, guess, or modify a selector. If you cannot express a check with the
+   available selectors, use expect_text instead.
+2. Elements marked "disabled": true cannot be clicked. To test that boundary assert
+   expect_disabled on them - never click them, and never expect a click to do anything.
+3. After acting on an element, do not assert that the same element is still visible.
+   Clicking often replaces or hides it. Assert the RESULT instead: new text, new url.
+4. expect_text must use text a user can SEE on the page - copy it from the element
+   labels or headings you were given. The browser tab title is not page text.
+5. Every test must end with at least one expect_* step."""
 
 
 # LLMs drift on enum wording - map the usual synonyms back.
@@ -49,56 +58,71 @@ class Designer:
         self.llm = llm or LLM()
 
     def design(self, app_map: AppMap) -> TestPlan:
+        """One LLM call for the whole app - the free tier has a daily request cap."""
         plan = TestPlan(base_url=app_map.base_url, summary=app_map.summary)
         known = app_map.selectors()
+        by_url = {p.url: p for p in app_map.pages}
 
-        for page in app_map.pages:
-            print(f"  designing tests for {page.url}")
-            try:
-                raw = self.llm.ask_json(self._prompt(page, app_map), system=SYSTEM)
-            except Exception as e:
-                print(f"  ! design failed for {page.url}: {e}")
+        print(f"  designing tests for {len(app_map.pages)} page(s) in one call")
+        try:
+            raw = self.llm.ask_json(self._prompt(app_map), system=SYSTEM)
+        except Exception as e:
+            print(f"  ! design failed: {e}")
+            return plan
+
+        for group in raw.get("pages", []):
+            page = by_url.get(group.get("url", ""))
+            if not page:
+                print(f"    - unknown page in response: {group.get('url')}")
                 continue
-            plan.cases += self._parse(raw, page, known)
+            plan.cases += self._parse(group, page, known)
 
         for i, case in enumerate(plan.cases, 1):  # renumber across pages
             case.id = f"TC{i:03d}"
         return plan
 
-    def _prompt(self, page: Page, app_map: AppMap) -> str:
-        catalog = [
-            {"kind": e.kind, "label": e.label, "selector": e.css, "type": e.input_type}
-            for e in page.elements
-            if e.css and (e.label or e.kind != "link")
-        ][:60]
-        forms = [
+    def _prompt(self, app_map: AppMap) -> str:
+        pages = [
             {
-                "form": f.name,
-                "fields": [
-                    {"label": x.label, "selector": x.css, "type": x.input_type, "required": x.required}
-                    for x in f.fields
+                "url": p.url,
+                "title": p.title,
+                "purpose": p.purpose,
+                "user_actions": p.actions,
+                "visible_headings": p.headings,
+                "elements": [
+                    {"kind": e.kind, "label": e.label, "selector": e.css,
+                     "type": e.input_type, "disabled": e.disabled}
+                    for e in p.elements
+                    if e.css and (e.label or e.kind != "link")
+                ][:45],
+                "forms": [
+                    {
+                        "form": f.name,
+                        "fields": [
+                            {"label": x.label, "selector": x.css, "type": x.input_type,
+                             "required": x.required}
+                            for x in f.fields
+                        ],
+                        "submit": f.submit.css if f.submit else None,
+                    }
+                    for f in p.forms
                 ],
-                "submit": f.submit.css if f.submit else None,
             }
-            for f in page.forms
+            for p in app_map.pages
         ]
         return (
-            f"App: {app_map.summary}\n"
-            f"Page: {page.title} ({page.url})\n"
-            f"Purpose: {page.purpose}\n"
-            f"Available user actions: {json.dumps(page.actions, ensure_ascii=False)}\n\n"
-            f"Elements you may target:\n{json.dumps(catalog, ensure_ascii=False)}\n\n"
-            f"Forms:\n{json.dumps(forms, ensure_ascii=False)}\n\n"
-            f"Design up to {self.per_page} test cases for THIS page. "
-            "Include at least one negative and one edge case if the page allows it.\n"
-            'Return JSON: {"cases": [{"title": "...", "kind": "positive|negative|edge", '
-            '"priority": "high|medium|low", "expected": "...", '
-            '"steps": [{"action": "...", "target": "...", "value": "...", "note": "..."}]}]}'
+            f"App: {app_map.summary}\n\n"
+            f"Pages:\n{json.dumps(pages, ensure_ascii=False)}\n\n"
+            f"Design up to {self.per_page} test cases PER PAGE. "
+            "Across the suite include negative and edge cases, not just happy paths.\n"
+            'Return JSON: {"pages": [{"url": "<exact url>", "cases": [{"title": "...", '
+            '"kind": "positive|negative|edge", "priority": "high|medium|low", "expected": "...", '
+            '"steps": [{"action": "...", "target": "...", "value": "...", "note": "..."}]}]}]}'
         )
 
-    def _parse(self, raw: dict, page: Page, known: set[str]) -> list[TestCase]:
+    def _parse(self, group: dict, page: Page, known: set[str]) -> list[TestCase]:
         cases = []
-        for item in raw.get("cases", []):
+        for item in group.get("cases", []):
             steps, dropped = self._clean_steps(item.get("steps", []), known)
             if not any(s.action.startswith("expect") for s in steps):
                 print(f"    - dropped '{item.get('title')}': no assertion")

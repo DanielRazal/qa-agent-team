@@ -9,10 +9,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("url")
 parser.add_argument("--pages", type=int, default=5)
 parser.add_argument("--headed", action="store_true")
+parser.add_argument("--no-llm", action="store_true", help="crawl only, skip enrichment")
 args = parser.parse_args()
 
 print(f"Exploring {args.url} (max {args.pages} pages)...")
-app_map = Explorer(max_pages=args.pages, headless=not args.headed).explore(args.url)
+app_map = Explorer(
+    max_pages=args.pages, headless=not args.headed, enrich=not args.no_llm
+).explore(args.url)
 
 out = Path("output/app_map.json")
 out.parent.mkdir(exist_ok=True)

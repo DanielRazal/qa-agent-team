@@ -16,16 +16,24 @@ and which concrete user actions it exposes. Be specific, never generic."""
 
 
 class Explorer:
-    def __init__(self, max_pages: int = 5, headless: bool = True, llm: LLM | None = None):
+    def __init__(
+        self,
+        max_pages: int = 5,
+        headless: bool = True,
+        enrich: bool = True,
+        llm: LLM | None = None,
+    ):
         self.max_pages = max_pages
         self.headless = headless
-        self.llm = llm or LLM()
+        self.enrich = enrich
+        self.llm = llm if llm or not enrich else LLM()
 
     def explore(self, base_url: str) -> AppMap:
         raw = self._crawl(base_url)
         pages = [self._to_page(r) for r in raw]
         app_map = AppMap(base_url=base_url, pages=pages)
-        self._enrich(app_map, raw)
+        if self.enrich:
+            self._enrich(app_map, raw)
         return app_map
 
     @staticmethod
@@ -79,6 +87,7 @@ class Explorer:
         return Page(
             url=raw["url"],
             title=raw["title"],
+            headings=raw["headings"],
             elements=[Element(**e) for e in raw["elements"]],
             forms=forms,
         )

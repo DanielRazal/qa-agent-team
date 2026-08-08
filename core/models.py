@@ -12,6 +12,7 @@ class Element(BaseModel):
     role: str = ""
     input_type: str = ""
     required: bool = False
+    disabled: bool = False  # includes wrappers like <li class="disabled">
     href: str = ""
 
 
@@ -27,6 +28,7 @@ class Page(BaseModel):
     title: str = ""
     purpose: str = ""  # filled by the LLM
     actions: list[str] = []  # user actions the LLM spotted
+    headings: list[str] = []  # visible h1/h2 text
     elements: list[Element] = []
     forms: list[Form] = []
 
@@ -54,9 +56,13 @@ class AppMap(BaseModel):
 Action = Literal[
     "goto", "click", "fill", "select", "press",
     "expect_text", "expect_visible", "expect_hidden", "expect_url",
+    "expect_disabled", "expect_enabled",
 ]
 
-NEEDS_SELECTOR = {"click", "fill", "select", "press", "expect_visible", "expect_hidden"}
+NEEDS_SELECTOR = {
+    "click", "fill", "select", "press",
+    "expect_visible", "expect_hidden", "expect_disabled", "expect_enabled",
+}
 
 
 class Step(BaseModel):

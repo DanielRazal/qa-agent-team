@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 output/
 tests_generated/
+.llm_cache/

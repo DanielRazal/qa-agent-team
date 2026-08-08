@@ -32,13 +32,28 @@
     return parts.join(" > ");
   };
 
+  const TEST_ATTRS = ["data-testid", "data-test-id", "data-test", "data-cy", "data-qa"];
+
+  // A selector is only worth emitting if it resolves back to this exact element.
+  const resolves = (el, sel) => {
+    try {
+      const hits = document.querySelectorAll(sel);
+      return hits.length === 1 && hits[0] === el;
+    } catch {
+      return false;
+    }
+  };
+
   const selector = (el) => {
-    const tid =
-      el.getAttribute("data-testid") || el.getAttribute("data-test") || el.getAttribute("data-cy");
-    if (tid) return `[data-testid="${tid}"]`;
-    if (el.id && !/^\d/.test(el.id)) return `#${CSS.escape(el.id)}`;
-    if (el.name) return `${el.tagName.toLowerCase()}[name="${el.name}"]`;
-    return path(el);
+    const candidates = [];
+    for (const attr of TEST_ATTRS) {
+      const v = el.getAttribute(attr);
+      if (v) candidates.push(`[${attr}="${v}"]`); // keep the attribute the app really uses
+    }
+    if (el.id && !/^\d/.test(el.id)) candidates.push(`#${CSS.escape(el.id)}`);
+    if (el.name) candidates.push(`${el.tagName.toLowerCase()}[name="${el.name}"]`);
+    candidates.push(path(el));
+    return candidates.find((c) => resolves(el, c)) || "";
   };
 
   const kindOf = (el) => {
@@ -54,6 +69,12 @@
     return el.getAttribute("role") === "link" ? "link" : "button";
   };
 
+  // Bootstrap-style wrappers disable a control without a disabled attribute on it.
+  const isDisabled = (el) =>
+    !!(el.disabled ||
+      el.getAttribute("aria-disabled") === "true" ||
+      el.closest('.disabled, [disabled], [aria-disabled="true"]'));
+
   const describe = (el) => ({
     kind: kindOf(el),
     label: nameOf(el),
@@ -61,12 +82,13 @@
     role: el.getAttribute("role") || "",
     input_type: el.tagName.toLowerCase() === "input" ? (el.type || "text") : "",
     required: !!el.required,
+    disabled: isDisabled(el),
     href: el.tagName.toLowerCase() === "a" ? el.href : "",
   });
 
   const SEL =
     'a[href], button, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
-  const nodes = [...document.querySelectorAll(SEL)].filter(visible);
+  const nodes = [...document.querySelectorAll(SEL)].filter((el) => visible(el) && selector(el));
 
   const forms = [...document.querySelectorAll("form")].map((f) => {
     const fields = [...f.querySelectorAll("input, select, textarea")]
