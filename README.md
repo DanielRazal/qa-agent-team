@@ -126,6 +126,22 @@ brand and category ids on every reseed, so any test built on `[data-test="produc
 breaks overnight. The Explorer now flags such elements as `volatile`, and the Designer
 is instructed to build tests around stable controls instead.
 
+## Continuous integration
+
+`.github/workflows/qa-agents.yml` runs the whole pipeline nightly on a clean Ubuntu
+runner: explore, design, generate, run, triage. The run publishes a job summary, keeps
+the generated suite and reports as artifacts for 14 days, and is gated by `ci_gate.py`.
+
+The gate is deliberately narrow. A drifted selector or a flaky test is work for the QA
+team, not a broken application, so only two things turn the build red: the pipeline
+producing no suite at all, and a failure that Triage classified as a real product bug.
+
+**A green build that proved nothing.** The first CI run passed with three tests named
+*"Verify initial security verification page state"*. The runner had been served a
+Cloudflare challenge instead of the app, and the agents dutifully mapped the bot wall,
+wrote tests for it, and passed them. The Explorer now refuses to map a page that looks
+like a bot check (`BlockedError`) rather than generating a suite that tests nothing.
+
 ## Limitations
 
 - Read-only crawling: no login, no checkout, nothing that writes data.
