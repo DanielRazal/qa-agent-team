@@ -1,6 +1,7 @@
 """Explorer agent: crawls an app and produces a structured AppMap."""
 
 import json
+import re
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -9,6 +10,32 @@ from core.llm import LLM
 from core.models import AppMap, Element, Form, Page
 
 _JS = (Path(__file__).parent / "extract.js").read_text(encoding="utf-8")
+
+class BlockedError(RuntimeError):
+    """The crawler was served a bot check instead of the application."""
+
+
+# A bot wall maps perfectly well - and produces a suite that proves nothing.
+_CHALLENGE = re.compile(
+    r"just a moment|attention required|verify you are human|checking your browser"
+    r"|security check|access denied|are you a robot",
+    re.I,
+)
+_BLOCKED_STATUS = {401, 403, 407, 429, 503}
+
+
+def _blocked_reason(status: int, data: dict) -> str | None:
+    if status in _BLOCKED_STATUS:
+        return f"HTTP {status}"
+    if _CHALLENGE.search(data.get("title", "")):
+        return f"challenge page titled {data['title']!r}"
+    if any(_CHALLENGE.search(h) for h in data.get("headings", [])):
+        return "challenge page heading"
+    thin = len(data.get("elements", [])) <= 5
+    if thin and any("cloudflare.com" in (e.get("href") or "") for e in data.get("elements", [])):
+        return "Cloudflare interstitial"
+    return None
+
 
 SYSTEM = """You are a senior QA engineer mapping an unfamiliar web app.
 You get raw element data scraped from real pages. Describe what each page is FOR
@@ -52,12 +79,23 @@ class Explorer:
                     continue
                 seen.add(self._key(url))
                 try:
-                    page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                    response = page.goto(url, wait_until="domcontentloaded", timeout=20000)
                     self._settle(page)
                     data = page.evaluate(_JS)
                 except Exception as e:
                     print(f"  ! skipped {url}: {type(e).__name__}")
                     continue
+
+                blocked = _blocked_reason(response.status if response else 0, data)
+                if blocked and not results:
+                    raise BlockedError(
+                        f"{url} served a bot check, not the app ({blocked}). "
+                        "Anything mapped from here would be a test of the bot wall."
+                    )
+                if blocked:
+                    print(f"  ! skipped {url}: {blocked}")
+                    continue
+
                 seen.add(self._key(data["url"]))  # redirects
                 results.append(data)
                 print(f"  + {data['title'][:50]} ({len(data['elements'])} elements)")

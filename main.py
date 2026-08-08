@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 from agents.automator import Automator
 from agents.designer import Designer
-from agents.explorer import Explorer
+from agents.explorer import BlockedError, Explorer
 from agents.triage import Triage
 
 OUT = Path("output")
@@ -50,7 +50,11 @@ def main() -> int:
         (OUT / stale).unlink(missing_ok=True)  # never report last run's failures
 
     banner("[1/3] EXPLORER", f"mapping {args.url}")
-    app_map = Explorer(max_pages=args.pages, headless=not args.headed).explore(args.url)
+    try:
+        app_map = Explorer(max_pages=args.pages, headless=not args.headed).explore(args.url)
+    except BlockedError as e:
+        print(f"\nBLOCKED: {e}", file=sys.stderr)
+        return 3
     (OUT / "app_map.json").write_text(app_map.model_dump_json(indent=2), encoding="utf-8")
     print(f"\n{app_map.summary}")
     print(f"-> {len(app_map.pages)} page(s) mapped")

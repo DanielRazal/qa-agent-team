@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       url:
+        # practicesoftwaretesting.com serves a Cloudflare challenge to CI runners
         description: Application to explore
-        default: https://practicesoftwaretesting.com
+        default: https://demo.playwright.dev/todomvc
       pages:
         description: Max pages to crawl
         default: "3"
@@ -36,7 +37,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          python main.py "${{ inputs.url || 'https://practicesoftwaretesting.com' }}" \
+          python main.py "${{ inputs.url || 'https://demo.playwright.dev/todomvc' }}" \
             --pages "${{ inputs.pages || 3 }}" --per-page 5 --triage
 
       - name: Write job summary
