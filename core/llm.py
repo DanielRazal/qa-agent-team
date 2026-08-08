@@ -25,6 +25,13 @@ FALLBACKS = [
 CACHE_DIR = Path(".llm_cache")
 
 
+def unwrap(raw, key: str) -> dict:
+    """Models sometimes return a bare array where an object was asked for."""
+    if isinstance(raw, list):
+        return {key: raw}
+    return raw if isinstance(raw, dict) else {}
+
+
 def _dead_end(err: Exception) -> bool:
     """Out of quota or model unavailable - retrying this model is pointless."""
     text = str(err)

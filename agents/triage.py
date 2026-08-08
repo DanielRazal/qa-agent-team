@@ -16,7 +16,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from agents.automator import _class_name, _slug
-from core.llm import LLM
+from core.llm import LLM, unwrap
 from core.models import AppMap, Failure, SelectorCheck, TriageReport, Verdict
 
 SYSTEM = """You are a QA lead triaging a failed test run.
@@ -199,6 +199,7 @@ class Triage:
                 for f in failures
             ]
 
+        raw = unwrap(raw, "verdicts")
         report.groups = raw.get("groups", [])
         known = {f.test for f in failures}
         verdicts = []

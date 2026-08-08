@@ -87,10 +87,20 @@
       el.getAttribute("aria-disabled") === "true" ||
       el.closest('.disabled, [disabled], [aria-disabled="true"]'));
 
+  // Without the real option values a test can only guess what to select.
+  const optionsOf = (el) =>
+    el.tagName.toLowerCase() === "select"
+      ? [...el.options].slice(0, 30).map((o) => ({
+          value: o.value,
+          label: (o.label || o.text || "").trim().slice(0, 60),
+        }))
+      : [];
+
   const describe = (el) => ({
     kind: kindOf(el),
     label: nameOf(el),
     css: selector(el),
+    options: optionsOf(el),
     role: el.getAttribute("role") || "",
     input_type: el.tagName.toLowerCase() === "input" ? (el.type || "text") : "",
     required: !!el.required,

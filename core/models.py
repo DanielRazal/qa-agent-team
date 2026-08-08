@@ -5,8 +5,14 @@ from typing import Literal
 from pydantic import BaseModel
 
 
+class Option(BaseModel):
+    value: str = ""
+    label: str = ""
+
+
 class Element(BaseModel):
     kind: str  # button | link | input | select | textarea
+    options: list[Option] = []  # for <select>, the values a test may choose
     label: str = ""  # accessible name
     css: str = ""  # stable selector
     role: str = ""
@@ -38,6 +44,28 @@ class AppMap(BaseModel):
     base_url: str
     summary: str = ""
     pages: list[Page] = []
+
+    def urls(self) -> set[str]:
+        """Every url the app really exposes - used to validate navigation steps."""
+        found = {p.url for p in self.pages}
+        for page in self.pages:
+            found |= {e.href for e in page.elements if e.href}
+        return found
+
+    def options_by_selector(self) -> dict[str, set[str]]:
+        """Selector -> the option values and labels a select really offers."""
+        found: dict[str, set[str]] = {}
+        for page in self.pages:
+            for e in page.elements:
+                if e.options and e.css:
+                    found.setdefault(e.css, set()).update(
+                        {o.value for o in e.options} | {o.label for o in e.options}
+                    )
+        return found
+
+    def volatile_selectors(self) -> set[str]:
+        """Selectors built on generated ids - guaranteed to rot on the next reseed."""
+        return {e.css for p in self.pages for e in p.elements if e.volatile and e.css}
 
     def selectors(self) -> set[str]:
         """Every selector the app really exposes - used to validate test steps."""

@@ -8,7 +8,7 @@ import keyword
 import re
 from pathlib import Path
 
-from core.llm import LLM
+from core.llm import LLM, unwrap
 from core.models import AppMap, Page, TestCase, TestPlan
 
 NAMING_SYSTEM = """You name UI elements for a Page Object Model.
@@ -96,8 +96,19 @@ class Automator:
         self.out = Path(out_dir)
         self.llm = llm or LLM()
 
+    def _clear_previous(self) -> None:
+        """Stale files from an earlier run would otherwise still be collected."""
+        for pattern in ("test_*.py", "pages/*.py", "helpers.py"):
+            for path in self.out.glob(pattern):
+                path.unlink()
+        for cache in self.out.rglob("__pycache__"):
+            for path in cache.glob("*"):
+                path.unlink()
+            cache.rmdir()
+
     def generate(self, plan: TestPlan, app_map: AppMap) -> list[Path]:
         (self.out / "pages").mkdir(parents=True, exist_ok=True)
+        self._clear_previous()
         (self.out / "conftest.py").write_text(CONFTEST, encoding="utf-8")
         (self.out / "pytest.ini").write_text(PYTEST_INI, encoding="utf-8")
         (self.out / "helpers.py").write_text(HELPERS, encoding="utf-8")
@@ -168,7 +179,7 @@ class Automator:
             return fallback
 
         result = {}
-        for group in raw.get("pages", []):
+        for group in unwrap(raw, "pages").get("pages", []):
             url = group.get("url", "")
             if url not in refs_by_page:
                 continue

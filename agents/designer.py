@@ -2,7 +2,7 @@
 
 import json
 
-from core.llm import LLM
+from core.llm import LLM, unwrap
 from core.models import NEEDS_SELECTOR, AppMap, Page, Step, TestCase, TestPlan
 
 SYSTEM = """You are a senior QA engineer designing test cases for a web app.
@@ -13,7 +13,7 @@ You may ONLY use these step actions:
   goto <url>                     - navigate
   click <selector>               - click an element
   fill <selector> <value>        - type into an input
-  select <selector> <value>      - pick a dropdown option
+  select <selector> <value>      - pick a dropdown option, using a listed option value
   press <selector> <key>         - press a key (e.g. Enter)
   expect_text <text>             - page contains this text
   expect_visible <selector>      - element is visible
@@ -35,7 +35,11 @@ HARD RULES
 5. Elements marked "volatile": true carry generated ids that change every time the
    app's data is reseeded. Prefer stable elements. Use a volatile one only when the
    test is impossible without it, and assert with expect_text rather than its selector.
-6. Every test must end with at least one expect_* step."""
+6. expect_url and goto may only use a url or fragment that appears in the urls you were
+   given. Filtering and sorting often happen without changing the url at all - never
+   invent a query string like "?sort=price" to assert on.
+7. A select step must use one of the values listed in that element's "options".
+8. Every test must end with at least one expect_* step."""
 
 
 # LLMs drift on enum wording - map the usual synonyms back.
@@ -63,7 +67,9 @@ class Designer:
     def design(self, app_map: AppMap) -> TestPlan:
         """One LLM call for the whole app - the free tier has a daily request cap."""
         plan = TestPlan(base_url=app_map.base_url, summary=app_map.summary)
-        known = app_map.selectors()
+        known, known_urls = app_map.selectors(), app_map.urls()
+        volatile = app_map.volatile_selectors()
+        options = app_map.options_by_selector()
         by_url = {p.url: p for p in app_map.pages}
 
         print(f"  designing tests for {len(app_map.pages)} page(s) in one call")
@@ -73,12 +79,12 @@ class Designer:
             print(f"  ! design failed: {e}")
             return plan
 
-        for group in raw.get("pages", []):
+        for group in unwrap(raw, "pages").get("pages", []):
             page = by_url.get(group.get("url", ""))
             if not page:
                 print(f"    - unknown page in response: {group.get('url')}")
                 continue
-            plan.cases += self._parse(group, page, known)
+            plan.cases += self._parse(group, page, known, known_urls, volatile, options)
 
         for i, case in enumerate(plan.cases, 1):  # renumber across pages
             case.id = f"TC{i:03d}"
@@ -94,7 +100,8 @@ class Designer:
                 "visible_headings": p.headings,
                 "elements": [
                     {"kind": e.kind, "label": e.label, "selector": e.css,
-                     "type": e.input_type, "disabled": e.disabled, "volatile": e.volatile}
+                     "type": e.input_type, "disabled": e.disabled, "volatile": e.volatile,
+                     **({"options": [o.value for o in e.options]} if e.options else {})}
                     for e in p.elements
                     if e.css and (e.label or e.kind != "link")
                 ][:45],
@@ -123,10 +130,18 @@ class Designer:
             '"steps": [{"action": "...", "target": "...", "value": "...", "note": "..."}]}]}]}'
         )
 
-    def _parse(self, group: dict, page: Page, known: set[str]) -> list[TestCase]:
+    def _parse(
+        self, group: dict, page: Page, known: set[str], known_urls: set[str],
+        volatile: set[str], options: dict[str, set[str]],
+    ) -> list[TestCase]:
         cases = []
         for item in group.get("cases", []):
-            steps, dropped = self._clean_steps(item.get("steps", []), known)
+            steps, dropped = self._clean_steps(item.get("steps", []), known, known_urls, options)
+            rotting = [s.target for s in steps if s.target in volatile]
+            if rotting:
+                # a whole case, not just the step: the remainder would assert nonsense
+                print(f"    - dropped '{item.get('title')}': built on a generated id ({rotting[0]})")
+                continue
             if not any(s.action.startswith("expect") for s in steps):
                 print(f"    - dropped '{item.get('title')}': no assertion")
                 continue
@@ -146,8 +161,10 @@ class Designer:
         return cases
 
     @staticmethod
-    def _clean_steps(raw_steps: list, known: set[str]) -> tuple[list[Step], int]:
-        """Keep only steps the Automator can actually compile."""
+    def _clean_steps(
+        raw_steps: list, known: set[str], known_urls: set[str], options: dict[str, set[str]]
+    ) -> tuple[list[Step], int]:
+        """Keep only steps the Automator can actually compile against a real app."""
         steps, dropped = [], 0
         for s in raw_steps:
             try:
@@ -157,6 +174,14 @@ class Designer:
                 continue
             if step.action in NEEDS_SELECTOR and step.target not in known:
                 dropped += 1  # hallucinated selector
+                continue
+            if step.action in ("expect_url", "goto"):
+                fragment = step.value or step.target
+                if not fragment or not any(fragment in url for url in known_urls):
+                    dropped += 1  # invented route or query string
+                    continue
+            if step.action == "select" and step.value not in options.get(step.target, set()):
+                dropped += 1  # option that the dropdown does not offer
                 continue
             steps.append(step)
         return steps, dropped
