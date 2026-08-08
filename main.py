@@ -83,9 +83,10 @@ def main() -> int:
         return 0
 
     banner("VERIFY", "running the generated suite")
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-v", "--tb=line"], cwd="tests_generated"
-    )
+    pytest_args = ["-v", "--tb=line"]
+    if args.headed:  # watch the suite the way you watched the crawl
+        pytest_args += ["--headed", "--slowmo", "400"]
+    result = subprocess.run([sys.executable, "-m", "pytest", *pytest_args], cwd="tests_generated")
     return result.returncode
 
 
